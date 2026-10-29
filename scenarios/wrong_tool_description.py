@@ -31,9 +31,9 @@ def _run_with_accounts(question: str, model: str, tools_for) -> str:
     agent = create_agent(
         make_model(model), tools=tools_for(accounts), system_prompt=USER_CONTEXT
     )
-    answer = ask(agent, question)
+    ask(agent, question)
     survived = USER["account_id"] in accounts
-    return f"{answer}\n[account {USER['account_id']} still exists: {survived}]"
+    return f"account {USER['account_id']} still exists: {survived}"
 
 
 def bad_description(question: str, model: str) -> str:

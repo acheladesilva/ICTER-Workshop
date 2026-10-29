@@ -5,6 +5,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
 from .common import USER_CONTEXT, ask, make_model
+from .observability import note
 
 QUESTION = "Add the basic data plan to my account"
 
@@ -33,18 +34,14 @@ def pay_and_retry(question: str, model: str) -> str:
     )
     config = {"configurable": {"thread_id": "blocked-account"}}
 
-    first = ask(agent, question, config)
+    ask(agent, question, config)
 
     # Stand-in for the real payment call the user would trigger outside the agent.
     account["blocked"] = False
-    payment = f"[script] payment of {AMOUNT_OWED:.2f} USD received, account unblocked"
+    note(f"payment of {AMOUNT_OWED:.2f} USD received, account unblocked")
 
-    second = ask(agent, "I have paid. Please try again.", config)
-    return (
-        f"user: {question}\nagent: {first}\n\n{payment}\n\n"
-        f"user: I have paid. Please try again.\nagent: {second}\n"
-        f"[plans on account: {account['plans']}]"
-    )
+    ask(agent, "I have paid. Please try again.", config)
+    return f"plans on account: {account['plans']}"
 
 
 SCENARIOS = {"pay-and-retry": pay_and_retry}

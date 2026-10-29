@@ -26,7 +26,8 @@ def _error_message_scenario(question: str, model: str, not_found: str) -> str:
     agent = create_agent(
         make_model(model), tools=[get_balance], system_prompt=NUMBER_CONTEXT
     )
-    return f"{ask(agent, question)}\n[get_balance called with: {attempts}]"
+    ask(agent, question)
+    return f"get_balance called with: {attempts}"
 
 
 def bad_error(question: str, model: str) -> str:

@@ -6,9 +6,14 @@ from typing import Annotated
 import typer
 from dotenv import load_dotenv
 
+from loguru import logger
+from rich.panel import Panel
+
 from scenarios import DEFAULT_MODEL, TASKS
+from scenarios.observability import console, setup_logging, trace
 
 load_dotenv()
+setup_logging()
 
 Task = Enum("Task", {name: name for name in TASKS}, type=str)
 
@@ -33,8 +38,15 @@ def main(
             f"must be one of: {', '.join(scenarios)}", param_hint="--scenario"
         )
     for name in [scenario] if scenario else scenarios:
-        typer.echo(f"\n=== {name} ===")
-        typer.echo(scenarios[name](module.QUESTION, model))
+        trace.reset()
+        logger.info("start {} / {} (model {})", task.value, name, model)
+        console.print()
+        console.rule(f"[bold]{task.value} / {name}[/bold]")
+        console.print(Panel(module.QUESTION, title="task", border_style="green"))
+        outcome = scenarios[name](module.QUESTION, model)
+        if outcome:
+            console.print(Panel(outcome, title="outcome", border_style="bold white"))
+        logger.info("end {} / {}: {}", task.value, name, outcome)
 
 
 if __name__ == "__main__":

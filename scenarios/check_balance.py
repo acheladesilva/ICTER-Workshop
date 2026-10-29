@@ -17,20 +17,20 @@ def get_balance(account_id: str) -> str:
     return f"{balance:.2f} USD"
 
 
-def no_context(question: str, model: str) -> str:
-    return ask(create_agent(make_model(model)), question)
+def no_context(question: str, model: str) -> None:
+    ask(create_agent(make_model(model)), question)
 
 
-def with_context(question: str, model: str) -> str:
+def with_context(question: str, model: str) -> None:
     agent = create_agent(make_model(model), system_prompt=USER_CONTEXT)
-    return ask(agent, question)
+    ask(agent, question)
 
 
-def with_tools(question: str, model: str) -> str:
+def with_tools(question: str, model: str) -> None:
     agent = create_agent(
         make_model(model), tools=[get_balance], system_prompt=USER_CONTEXT
     )
-    return ask(agent, question)
+    ask(agent, question)
 
 
 SCENARIOS = {

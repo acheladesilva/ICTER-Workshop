@@ -93,10 +93,26 @@ in `pay_and_retry` for a real call when you have one.
 uv run main.py blocked-account
 ```
 
+## Observability
+
+Each scenario prints its trace with `rich`, step by step:
+
+- the task, then the system and user prompts (each shown once)
+- every LLM call, with the model that actually answered, latency and token counts
+- assistant replies, tool calls with their arguments, and tool responses
+- script steps outside the agent (such as the mocked payment) and a final outcome panel
+
+`loguru` logs the same events at full detail to `logs/agent.log` (git-ignored,
+rotated at 1 MB). Warnings and errors also go to the terminal.
+
+Tracing is a LangChain callback handler in `scenarios/observability.py`, so scenarios
+contain no print statements.
+
 ## Notes
 
 - Models are not deterministic, so any scenario can vary between runs.
-- `openrouter/free` routes to different free models. It can hit per-minute rate limits
+- `openrouter/free` routes to different free models, even between calls of one run (the
+  trace shows which one answered). It can hit per-minute rate limits
   (a 429 error, just retry) and occasionally returns an odd reply, such as a safety
   label instead of an answer. If that happens, pin a model with `--model`.
 
@@ -105,5 +121,6 @@ uv run main.py blocked-account
 - `main.py`: CLI, routes a task to its scenarios
 - `scenarios/`: one module per task, each with a `QUESTION` and a `SCENARIOS` dict
   - `common.py`: model setup, mock user data, `ask` helper
+  - `observability.py`: rich trace handler and loguru setup
   - `check_balance.py`, `wrong_tool_description.py`, `wrong_error_message.py`, `blocked_account.py`
   - `__init__.py`: registers the tasks. To add one, create a module and add it to `TASKS`.

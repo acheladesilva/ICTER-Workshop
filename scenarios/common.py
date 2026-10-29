@@ -3,6 +3,9 @@
 import os
 
 from langchain_openai import ChatOpenAI
+from loguru import logger
+
+from .observability import trace
 
 DEFAULT_MODEL = "openrouter/free"
 
@@ -24,7 +27,9 @@ def make_model(name: str) -> ChatOpenAI:
 
 
 def ask(agent, question: str, config: dict | None = None) -> str:
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": question}]}, config
-    )
-    return result["messages"][-1].text
+    """Run one turn. The trace handler prints and logs every step."""
+    config = {**(config or {}), "callbacks": [trace]}
+    result = agent.invoke({"messages": [{"role": "user", "content": question}]}, config)
+    answer = result["messages"][-1].text
+    logger.info("final answer: {}", answer)
+    return answer
