@@ -129,57 +129,233 @@ contain no print statements.
 
 ## τ² telecom workshop
 
-One customer problem, four conditions: **“My mobile internet is broken or slow;
-I need excellent speed, and I have no Wi-Fi.”** John Smith uses `555-123-2002`.
-The support agent controls the account; a separate simulated user controls the
-phone. You can see their conversation and the actual environment checks.
+All four Tau tasks use the same request: **“My mobile internet is broken or slow;
+I need excellent speed, and I have no Wi-Fi.”** The customer is John Smith, phone
+`555-123-2002`.
 
-### Setup
+The support agent manages the account; a separate simulated user operates the
+phone. Both roles run automatically. You watch their conversation and check
+whether the phone/account state satisfies the task. All telecom changes and
+charges are simulated.
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
+### 1. Open the repository and install dependencies
+
+If you already have this checkout, open a terminal in its root directory—the
+folder containing `telecom.py`, `showprogress.py` and `pyproject.toml`. Otherwise,
+clone the workshop branch and enter the folder:
+
+```bash
+git clone --branch aeshan/tau2-problem-task https://github.com/kaushithamsilva/icter-workshop.git
+cd icter-workshop
+```
+
+If your existing checkout does not contain `telecom.py`, fetch and switch to the
+workshop branch from that checkout:
+
+```bash
+git fetch origin
+git switch aeshan/tau2-problem-task
+```
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed,
+then install the locked dependencies:
 
 ```bash
 uv sync --frozen
-cp .env.example .env  # first setup only; add OPENROUTER_API_KEY inside .env
-uv run telecom.py validate  # offline solvability check
-uv run telecom.py easy
 ```
 
-The Python version and Tau dependency are configured locally; no separate Tau
-checkout is needed. The key stays in ignored `.env`.
+The repository selects Python 3.12 and includes the required Tau core and data.
+You do not need another Tau checkout or to activate a virtual environment.
+Run every command below from this repository root.
 
-Both participants use **`nvidia/nemotron-3.5-lightning:free`** by default. The
-telecom runner rejects paid models/nonzero catalog prices and sets zero-price
-provider limits. There is no paid fallback. `--model` accepts another free model;
-free-provider outages are reported as errors, separately from task failures.
+### 2. Configure the OpenRouter API key and model
 
-### Four tasks
-
-The goal, baseline agent prompt, policy and tools stay the same. Only the user
-persona and initial faults/checks change.
-
-| Task | Main scenario | Environment checks required to pass |
-|---|---|---|
-| `easy` | Cooperative user. Airplane mode is on; network preference is stuck on 2G. | Mobile data works; speed ≥200 Mbps rated **Excellent**; airplane mode off; cellular service connected. **4 checks.** |
-| `hard-user` | Same two faults. An anxious, terse user refuses multi-step requests and may leave after repeated overload. | The same **4 checks** as `easy`. |
-| `hard-env` | Cooperative user. Adds mobile data disabled, Data Saver enabled, a faulty VPN and exhausted data allowance. | All 4 easy checks, plus Data Saver off, allowance no longer exceeded, and **exactly 2 GB** added to account `C1001`, line `L1002`. **7 checks.** |
-| `hard-both` | Difficult user with all six faults. The agent must retain cooperation while completing every repair. | The same **7 checks** as `hard-env`. |
-
-Run `uv run telecom.py <task>` or `uv run telecom.py all`. Each starts fresh with
-a 12-round limit (`--max-turns` changes it). The speed check also catches an
-unresolved VPN or slow network mode. The user can approve a 2 GB top-up but does
-not want a plan change. All telecom charges and phone changes are simulated.
-
-### Watch the conversation
-
-Runs print the dialogue automatically. In a second terminal:
+Sign in to [OpenRouter's API key page](https://openrouter.ai/settings/keys) and
+create a key. If `.env` does not exist yet, create it from the example:
 
 ```bash
-uv run showprogress.py --follow         # follow the latest run
-uv run showprogress.py --follow --tools # include tool calls and results
+cp .env.example .env
 ```
 
-Replay the tested examples **without an API key or model calls**:
+If you already configured `.env` for the earlier examples, keep that file. Open
+`.env` in your editor, set the following value to your own key, and save it:
+
+```env
+OPENROUTER_API_KEY=your-openrouter-api-key
+```
+
+Use `nvidia/nemotron-3.5-lightning:free` for both the support agent and simulated
+user. The live-run commands below select it explicitly with `--model`. It is also
+the telecom runner's default, so omitting `--model` selects the same model.
+`OPENROUTER_MODEL` in `.env` controls the earlier `main.py` examples; use `--model`
+to choose a model for `telecom.py`.
+
+The telecom runner accepts only free models, checks their catalog prices and
+sets zero-price provider limits. Your key stays in ignored `.env`.
+
+### 3. Check that the four task environments load
+
+```bash
+uv run telecom.py validate
+```
+
+Expected output:
+
+```text
+easy: solvable; 4 native environment checks
+hard-user: solvable; 4 native environment checks
+hard-env: solvable; 7 native environment checks
+hard-both: solvable; 7 native environment checks
+```
+
+This runs offline and confirms that each task can be solved. It does not run the
+agent or prove that the agent will pass.
+
+### 4. Run task 1: easy user and easy environment
+
+In **Terminal A**, run:
+
+```bash
+uv run telecom.py easy --model nvidia/nemotron-3.5-lightning:free
+```
+
+The customer cooperates, but airplane mode is on and the network preference is
+stuck on 2G. The task passes only when all four checks succeed:
+
+- Mobile data works.
+- Download speed is at least 200 Mbps and rated **Excellent**.
+- Airplane mode is off.
+- Cellular service is connected.
+
+Wait for the `Trace: runs/...-easy.jsonl` line. The terminal then shows panels
+labeled `agent` and `user` as their messages arrive. You do not need to type user
+replies. Keep this terminal running; use step 5 if you want a separate viewer.
+
+At the end, read the overall `PASS`, `FAIL` or `ERROR` and the individual check
+results. The saved baseline for this task is **PASS, 4/4**. Live model responses
+can vary, so a new run is not guaranteed to match the recording.
+
+### 5. Watch the live conversation in a second terminal
+
+After Terminal A prints its `Trace:` line, open **Terminal B** in the same
+repository folder and run:
+
+```bash
+uv run showprogress.py --follow
+```
+
+This displays the latest run's conversation so far, then waits for new messages.
+It does not start another task or make model calls. Messages appear when each
+turn finishes; this is not token-by-token streaming.
+
+To inspect the account/phone actions as well, press `Ctrl+C` in Terminal B and
+restart the viewer with:
+
+```bash
+uv run showprogress.py --follow --tools
+```
+
+`--tools` adds tool names, arguments, results and the phone tools offered to the
+customer. Stopping the viewer does not stop the run in Terminal A.
+
+**Run one live task at a time.** The viewer follows one trace and exits at its
+final result. For each new task below, wait for its new `Trace:` line, then run
+`uv run showprogress.py --follow` again in Terminal B. A viewer already watching
+an older file does not switch to the new task automatically.
+
+### 6. Run task 2: hard user and easy environment
+
+After task 1 finishes, run this in Terminal A:
+
+```bash
+uv run telecom.py hard-user --model nvidia/nemotron-3.5-lightning:free
+```
+
+The phone has the same two faults and the same **four pass checks** as task 1.
+The user is anxious, gives short replies and refuses requests containing several
+phone steps. Repeated overload can make the user leave before repairs finish.
+
+After the new `Trace:` line appears, watch it in Terminal B:
+
+```bash
+uv run showprogress.py --follow
+```
+
+Read how the agent responds when the user asks for one clear step. The saved
+baseline is **FAIL, 0/4**: the user leaves after repeated overloaded requests.
+
+### 7. Run task 3: easy user and hard environment
+
+After task 2 finishes, run this in Terminal A:
+
+```bash
+uv run telecom.py hard-env --model nvidia/nemotron-3.5-lightning:free
+```
+
+The user cooperates. In addition to airplane mode and 2G preference, mobile data
+is disabled, Data Saver is on, a faulty VPN is connected and the data allowance
+has been exceeded. All four easy checks must pass, plus these three:
+
+- Data Saver is off.
+- Data usage no longer exceeds the available allowance.
+- Exactly **2 GB** has been added to account `C1001`, line `L1002`.
+
+That makes **seven checks**. The Excellent-speed requirement also catches the
+unresolved VPN or slow network mode. The user can approve a 2 GB top-up but does
+not want a plan change.
+
+After the new `Trace:` line appears, watch the conversation and actions in
+Terminal B:
+
+```bash
+uv run showprogress.py --follow --tools
+```
+
+Check whether the agent completes every repair and adds the correct amount of
+data. The saved baseline is **FAIL, 5/7**: repeated top-ups add 296 GB instead of
+2 GB, the speed problem remains, and the tool-step limit stops the loop.
+
+### 8. Run task 4: hard user and hard environment
+
+After task 3 finishes, run this in Terminal A:
+
+```bash
+uv run telecom.py hard-both --model nvidia/nemotron-3.5-lightning:free
+```
+
+This combines task 2's difficult user with task 3's six faults. Passing requires
+the same **seven checks** as task 3.
+
+After the new `Trace:` line appears, watch it in Terminal B:
+
+```bash
+uv run showprogress.py --follow --tools
+```
+
+Check whether the agent keeps the user cooperating while completing all repairs.
+The saved baseline is **FAIL, 0/7**: the user leaves before the faults are fixed.
+
+To run all four tasks sequentially instead of starting them individually, use:
+
+```bash
+uv run telecom.py all --model nvidia/nemotron-3.5-lightning:free
+```
+
+Terminal A shows every conversation automatically. A separate viewer still
+needs restarting for each task. The `all` command stops if a provider/protocol
+error occurs. Each task starts with fresh state and a 12-round conversation
+limit; a failure does not carry state into the next task.
+
+### 9. Replay conversations and compare results
+
+After a live run finishes, replay its latest conversation with:
+
+```bash
+uv run showprogress.py
+```
+
+To see the four recorded baselines, run any of these commands. They need the
+installed dependencies but **no API key or model calls**:
 
 ```bash
 uv run showprogress.py examples/easy.jsonl
@@ -188,47 +364,65 @@ uv run showprogress.py examples/hard-env.jsonl
 uv run showprogress.py examples/hard-both.jsonl
 ```
 
-Add `--delay 1` for a paced replay or `--tools` to inspect actions. New traces,
-prompt snapshots and results are saved in ignored `runs/`.
-
-### Live-tested results — 30 October 2026
-
-Each condition links to its conversation recording; each result links to the
-individual environment checks. Calls count both the agent and simulated user.
-
-| Condition / recording | Result (checks passed) | Model calls | Elapsed | Recorded behavior |
-|---|---|---:|---:|---|
-| [Easy](examples/easy.jsonl) | [**PASS, 4/4**](examples/easy.result.json) | 20 | 101.25 s | Phone actions restore excellent mobile speed. |
-| [Hard user](examples/hard-user.jsonl) | [**FAIL, 0/4**](examples/hard-user.result.json) | 8 | 37.09 s | Repeated checklists overwhelm the user, who leaves. |
-| [Hard environment](examples/hard-env.jsonl) | [**FAIL, 5/7**](examples/hard-env.result.json) | 32 | 231.92 s | 148 top-ups add 296 GB instead of 2 GB; speed remains unresolved. The tool-step limit stops the loop. |
-| [Both hard](examples/hard-both.jsonl) | [**FAIL, 0/7**](examples/hard-both.result.json) | 7 | 175.08 s | The user leaves after repeated overload, before repairs. |
-
-All four used `nvidia/nemotron-3.5-lightning:free` for both participants and the
-same agent prompt. All 67 selected model replies reported **$0 API cost**.
-These are selected teaching recordings; fresh runs can differ. The
-[attempt index](examples/manifest.json) retains all 17 development attempts,
-including provider/protocol errors excluded from scored failures.
-
-**Agent improvements for the three failed cases are the next workshop exercise**;
-no improved agent is supplied. Later, copy
-`workshop/prompts/baseline.txt` to `my-agent.txt` and use `--agent-prompt my-agent.txt`.
-
-### Source and verification
-
-This adapts [Sierra τ²-bench](https://github.com/sierra-research/tau2-bench)'s native
-telecom environment, tasks, tools and assertions using a LangGraph runner.
-It is not an official benchmark score. The hard user combines Tau's Hard persona
-with a workshop rule: two overloaded phone requests trigger departure; a clear
-single-step request resets patience. The shared opening and departure are marked
-as scripted. Success requires actual state checks, not a model's claim.
+For a paced replay with tool activity, use:
 
 ```bash
-uv run python -m unittest discover -s tests -v
-uv run python scripts/verify_examples.py
+uv run showprogress.py examples/easy.jsonl --tools --delay 1
 ```
 
-Validation completed: **19 tests passed**, a clean install from `uv.lock` passed,
-and terminal replay/live-follow checks passed. The verifier reproduces every
-selected native tool result and all four grades offline; it makes no model calls.
-See [instructor notes](docs/telecom-details.md) for the exact persona rule, source
-tasks, limitations and file map.
+To replay one of your older runs, replace `examples/easy.jsonl` with the exact
+`runs/...jsonl` path printed when that run started. Each run also saves a
+`.result.json` file containing the checks and a `.config.json` task/prompt
+snapshot beside its trace.
+
+Recorded live results from **30 October 2026**:
+
+| Recording | Result (checks passed) | Model calls | Elapsed |
+|---|---|---:|---:|
+| [Easy](examples/easy.jsonl) | [**PASS, 4/4**](examples/easy.result.json) | 20 | 101.25 s |
+| [Hard user](examples/hard-user.jsonl) | [**FAIL, 0/4**](examples/hard-user.result.json) | 8 | 37.09 s |
+| [Hard environment](examples/hard-env.jsonl) | [**FAIL, 5/7**](examples/hard-env.result.json) | 32 | 231.92 s |
+| [Both hard](examples/hard-both.jsonl) | [**FAIL, 0/7**](examples/hard-both.result.json) | 7 | 175.08 s |
+
+All four used the same baseline agent prompt and the free NVIDIA model above.
+Calls include both roles; all 67 selected replies reported **$0 API cost**.
+These selected recordings are not success-rate estimates. The
+[attempt index](examples/manifest.json) retains all 17 development attempts,
+including errors excluded from scored failures.
+
+### 10. Verify the recordings offline
+
+```bash
+uv run python scripts/verify_examples.py
+uv run python -m unittest discover -s tests -v
+```
+
+The first command replays the recorded native tool calls and checks their outputs
+and final grades without a model. The second runs 19 offline tests. Both passed
+for this version, along with clean installation and replay/live-follow checks.
+
+### If a command does not work
+
+| What you see | What to do |
+|---|---|
+| `uv: command not found` | Install uv using the link in step 1, reopen the terminal, then run `uv sync --frozen`. |
+| `telecom.py` or `showprogress.py` cannot be found | Open the repository root and check that you selected the workshop branch in step 1. |
+| Missing or invalid API key | Check `OPENROUTER_API_KEY` in the repository's `.env`, save it, and rerun the task. |
+| `No run yet`, or the viewer shows an older task | Start a task in Terminal A and wait for its new `Trace:` line before starting the viewer again. |
+| `HTTP 429`, a provider outage, or a pause between replies | Keep the run open while a retry is announced. If it ends with `ERROR`, rerun later or replay the saved examples from step 9. |
+| The configured free model is unavailable | Replay the saved examples, or explicitly select another available free tool-calling model with `--model`. Paid models are rejected. |
+| The conversation ends with `FAIL` | Inspect the failed state checks and use `--tools` to see which actions occurred. A task failure is different from an API/protocol `ERROR`. |
+
+### About these tasks
+
+This uses [Sierra τ²-bench](https://github.com/sierra-research/tau2-bench)'s native
+telecom tools, state and assertions with a custom LangGraph runner. It is not an
+official benchmark score. The shared opening and conditional departure are
+scripted. The hard user combines Tau's Hard persona with a workshop rule: two
+requests offering multiple distinct phone tools trigger departure unless a
+single-tool request resets patience between them.
+
+All four tasks are solvable; only the easy baseline has a passing agent recording
+here. Agent improvements for the three failed cases are left for a later exercise.
+See [instructor notes](docs/telecom-details.md) for the source task IDs, exact user
+rule and implementation details.
