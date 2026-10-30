@@ -10,4 +10,8 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "rich>=15.0.0",
     "typer>=0.27.3",
+    "tau2-workshop-core",
 ]
+
+[tool.uv.sources]
+tau2-workshop-core = { path = "vendor/tau2-core", editable = true }
