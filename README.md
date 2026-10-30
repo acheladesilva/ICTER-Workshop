@@ -64,17 +64,24 @@ prompt snapshots and results are saved in ignored `runs/`.
 
 ## Live-tested results — 30 October 2026
 
-| Condition | Result | Teaching point |
-|---|---|---|
-| Easy | **PASS, 4/4** | Agent instructions lead to real user actions and restored speed. |
-| Hard user | **FAIL, 0/4** | Repeated checklists overwhelm the user, who leaves. |
-| Hard environment | **FAIL, 5/7** | Repeated top-ups add 296 GB instead of 2 GB; speed remains unresolved. The tool-step limit stops the loop. |
-| Both hard | **FAIL, 0/7** | The user leaves after repeated overload, before the six faults are repaired. |
+Each condition links to its conversation recording; each result links to the
+individual environment checks. Calls count both the agent and simulated user.
 
-All 67 selected model replies reported zero API cost. These are selected teaching
-recordings; fresh runs can differ. The full attempt history, including excluded
-errors, is in `examples/manifest.json`. **The three improvements are left for our
-next session**; no improved agent is supplied. Later, copy
+| Condition / recording | Result (checks passed) | Model calls | Elapsed | Recorded behavior |
+|---|---|---:|---:|---|
+| [Easy](examples/easy.jsonl) | [**PASS, 4/4**](examples/easy.result.json) | 20 | 101.25 s | Phone actions restore excellent mobile speed. |
+| [Hard user](examples/hard-user.jsonl) | [**FAIL, 0/4**](examples/hard-user.result.json) | 8 | 37.09 s | Repeated checklists overwhelm the user, who leaves. |
+| [Hard environment](examples/hard-env.jsonl) | [**FAIL, 5/7**](examples/hard-env.result.json) | 32 | 231.92 s | 148 top-ups add 296 GB instead of 2 GB; speed remains unresolved. The tool-step limit stops the loop. |
+| [Both hard](examples/hard-both.jsonl) | [**FAIL, 0/7**](examples/hard-both.result.json) | 7 | 175.08 s | The user leaves after repeated overload, before repairs. |
+
+All four used `nvidia/nemotron-3.5-lightning:free` for both participants and the
+same agent prompt. All 67 selected model replies reported **$0 API cost**.
+These are selected teaching recordings; fresh runs can differ. The
+[attempt index](examples/manifest.json) retains all 17 development attempts,
+including provider/protocol errors excluded from scored failures.
+
+**Agent improvements for the three failed cases are the next workshop exercise**;
+no improved agent is supplied. Later, copy
 `workshop/prompts/baseline.txt` to `my-agent.txt` and use `--agent-prompt my-agent.txt`.
 
 ## Source and verification
@@ -91,7 +98,9 @@ uv run python -m unittest discover -s tests -v
 uv run python scripts/verify_examples.py
 ```
 
-The verifier replays native tool calls and reproduces all four grades offline.
+Validation completed: **19 tests passed**, a clean install from `uv.lock` passed,
+and terminal replay/live-follow checks passed. The verifier reproduces every
+selected native tool result and all four grades offline; it makes no model calls.
 See [instructor notes](docs/telecom-details.md) for the exact persona rule, source
 tasks, limitations and file map. The original tutorial remains available through
 `main.py`; see [its instructions](docs/original-tutorial.md).
