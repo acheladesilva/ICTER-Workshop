@@ -129,12 +129,10 @@ contain no print statements.
 
 ## τ² telecom workshop
 
-Continue with these telecom tasks after the four tutorial examples above.
-
 One customer problem, four conditions: **“My mobile internet is broken or slow;
 I need excellent speed, and I have no Wi-Fi.”** John Smith uses `555-123-2002`.
 The support agent controls the account; a separate simulated user controls the
-phone. Students see their conversation and the actual environment checks.
+phone. You can see their conversation and the actual environment checks.
 
 ### Setup
 
