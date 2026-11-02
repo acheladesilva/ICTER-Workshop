@@ -119,13 +119,13 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("Check the status bar.", pending["message"])
         self.assertIn("Then test the speed.", pending["message"])
 
-    def simulate(self, agent, user, name="easy"):
+    def simulate(self, agent, user, name="easy", max_turns=4):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         with patch("workshop.runner.preflight", return_value={"test": True}), patch(
             "workshop.runner.make_model", side_effect=[agent, user]
         ), contextlib.redirect_stdout(io.StringIO()):
-            result = run(name, "openrouter/free", Path(temp.name), max_turns=4)
+            result = run(name, "openrouter/free", Path(temp.name), max_turns=max_turns)
         events = [json.loads(line) for line in Path(result["trace"]).read_text().splitlines()]
         self.assertEqual(events[-1]["event"], "result")
         return result, events
@@ -144,6 +144,36 @@ class RunnerTests(unittest.TestCase):
         result, events = self.simulate(agent, user)
         self.assertEqual(result["outcome"], "pass")
         self.assertEqual(sum(e["event"] == "tool" for e in events), 3)
+
+    def test_default_cli_continues_beyond_twelve_turns_until_customer_stops(self):
+        import telecom
+        agent = ScriptedModel(responses=[call("ask_customer", {
+            "message": "Do you need clarification?", "phone_tools": []}, f"question-{i}")
+            for i in range(14)])
+        user = ScriptedModel(responses=[AIMessage(content=f"I'm still unsure, question {i}.")
+                                       for i in range(13)] + [AIMessage(content="I'll leave. ###STOP###")])
+        with tempfile.TemporaryDirectory() as tmp, patch("sys.argv", ["telecom.py", "hard-user", "--output", tmp]), \
+             patch("workshop.runner.preflight", return_value={"test": True}), \
+             patch("workshop.runner.make_model", side_effect=[agent, user]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(telecom.main(), 0)
+            path = next(Path(tmp).glob("*.jsonl"))
+            events = [json.loads(line) for line in path.read_text().splitlines()]
+            config = json.loads(path.with_suffix(".config.json").read_text())
+        self.assertIsNone(config["max_turns"])
+        self.assertEqual(events[-1]["termination"], "user_stop")
+        self.assertEqual(max(e.get("turn", 0) for e in events), 14)
+
+    def test_explicit_turn_cap_remains_available(self):
+        agent = ScriptedModel(responses=[call("ask_customer", {
+            "message": "Do you need clarification?", "phone_tools": []}, f"question-{i}")
+            for i in range(3)])
+        user = ScriptedModel(responses=[AIMessage(content=f"Please explain again, question {i}.")
+                                       for i in range(3)])
+        result, events = self.simulate(agent, user, max_turns=2)
+        self.assertEqual(result["termination"], "turn_limit")
+        self.assertEqual(max(e.get("turn", 0) for e in events), 2)
+        self.assertEqual(result["model_calls"], 4)
 
     def test_user_claiming_success_cannot_fake_pass(self):
         result, _ = self.simulate(ScriptedModel(responses=[call("ask_customer", {"message": "Is it fixed?", "phone_tools": []}, "req")]),

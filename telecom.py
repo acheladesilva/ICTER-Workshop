@@ -13,12 +13,14 @@ def main():
     parser.add_argument("task", choices=["easy", "hard-user", "hard-env", "hard-both", "all", "validate"])
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         help="Free model for BOTH participants; paid models are rejected")
-    parser.add_argument("--max-turns", type=int, default=12)
-    parser.add_argument("--tools", action="store_true", help="Also display tool calls/results")
+    parser.add_argument("--max-turns", type=int, default=None,
+                        help="Optional conversation-turn cap; omitted means unlimited")
+    parser.add_argument("--tools", action=argparse.BooleanOptionalAction, default=True,
+                        help="Display tool calls/results (enabled by default; --no-tools hides them)")
     parser.add_argument("--output", type=Path, default=Path("runs"))
     parser.add_argument("--agent-prompt", type=Path, help="Optional prompt for later workshop improvements")
     args = parser.parse_args()
-    if args.max_turns < 1:
+    if args.max_turns is not None and args.max_turns < 1:
         parser.error("--max-turns must be positive")
     load_dotenv(Path(__file__).resolve().parent / ".env")
     logger.remove()

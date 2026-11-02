@@ -11,6 +11,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import Field
 
 DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free"
+DEFAULT_MAX_TOKENS = 2048
 BASE_URL = "https://openrouter.ai/api/v1"
 # Shared between the agent and user: stay below the published free-model RPM cap.
 RATE_LIMITER = InMemoryRateLimiter(requests_per_second=0.25, max_bucket_size=1)
@@ -75,7 +76,7 @@ def make_model(name: str, on_retry=None) -> ChatOpenAI:
         raise ValueError("OPENROUTER_API_KEY is required (no OpenAI key fallback).")
     return FreeChatOpenAI(
         model=name, api_key=key, base_url=BASE_URL, temperature=0,
-        max_tokens=2048, timeout=90, max_retries=0, rate_limiter=RATE_LIMITER,
+        max_tokens=DEFAULT_MAX_TOKENS, timeout=90, max_retries=0, rate_limiter=RATE_LIMITER,
         retry_observer=on_retry,
         extra_body={"provider": {"max_price": {"prompt": 0, "completion": 0}}},
     )

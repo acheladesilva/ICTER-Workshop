@@ -227,9 +227,18 @@ stuck on 2G. The task passes only when all four checks succeed:
 - Airplane mode is off.
 - Cellular service is connected.
 
-Wait for the `Trace: runs/...-easy.jsonl` line. The terminal then shows panels
-labeled `agent` and `user` as their messages arrive. You do not need to type user
-replies. Keep this terminal running; use step 5 if you want a separate viewer.
+Wait for the `Trace: runs/...-easy.jsonl` line. All four run commands show the
+`agent` and `user` conversation alongside tool names, arguments and results as
+the actions finish. The terminal also shows which phone tools the agent offers
+to the customer. No extra flag is needed; add `--no-tools` if you want to hide
+tool details. You do not need to type user replies. Keep this terminal running;
+use step 5 if you want a separate viewer.
+
+All four commands run with **no conversation-turn limit** by default. They can
+continue past turn 12 until the customer stops, leaves or transfers. Press
+`Ctrl+C` in the run terminal to stop and save an interrupted run. To set a limit
+for a particular run, add `--max-turns 20`. The separate tool-loop limit still
+ends a run that gets stuck making tool calls within one speaker's turn.
 
 At the end, read the overall `PASS`, `FAIL` or `ERROR` and the individual check
 results. The saved baseline for this task is **PASS, 4/4**. Live model responses
@@ -341,10 +350,11 @@ To run all four tasks sequentially instead of starting them individually, use:
 uv run telecom.py all --model nvidia/nemotron-3.5-lightning:free
 ```
 
-Terminal A shows every conversation automatically. A separate viewer still
-needs restarting for each task. The `all` command stops if a provider/protocol
-error occurs. Each task starts with fresh state and a 12-round conversation
-limit; a failure does not carry state into the next task.
+Terminal A shows every conversation and its tool activity automatically. A
+separate viewer still needs restarting for each task. The `all` command stops if
+a provider/protocol error occurs. Each task starts with fresh state and no
+conversation-turn cap by default; a failure does not carry state into the next
+task. Add `--max-turns N` to apply an optional cap to each task.
 
 ### 9. Replay conversations and compare results
 
@@ -390,6 +400,26 @@ These selected recordings are not success-rate estimates. The
 [attempt index](examples/manifest.json) retains all 17 development attempts,
 including errors excluded from scored failures.
 
+Additional live checks from **2 November 2026** are saved separately in
+[runtime validation](examples/runtime-validation/manifest.json):
+
+| Task | Result | How the run ended |
+|---|---|---|
+| Easy | PASS, 4/4 | Explicit four-turn smoke-test cap. |
+| Hard user | PASS, 4/4 | Customer stopped after nine turns; no conversation cap. |
+| Hard environment | FAIL, 6/7 | Tool-step limit after repeated refuels; exact 2 GB check failed. |
+| Both hard | ERROR; 5/7 diagnostic checks true | Recovery exhausted after 13 completed turns; no conversation cap. |
+
+These runs tested successive runtime fixes, so they are not a controlled
+comparison. Their 141 model replies all reported $0. The combined hard run still
+hit a protocol error; its checks are diagnostic, not a scored failure. The
+original four baseline recordings remain unchanged. To replay the uncapped
+hard-user run with tool details:
+
+```bash
+uv run showprogress.py examples/runtime-validation/20261102T135949684278Z-hard-user.jsonl --tools
+```
+
 ### 10. Verify the recordings offline
 
 ```bash
@@ -398,8 +428,9 @@ uv run python -m unittest discover -s tests -v
 ```
 
 The first command replays the recorded native tool calls and checks their outputs
-and final grades without a model. The second runs 19 offline tests. Both passed
-for this version, along with clean installation and replay/live-follow checks.
+and final grades without a model. The second runs 46 offline tests, including
+both speakers' identities, empty/truncated reply recovery, tool ownership and
+early-exit checks, and a conversation continuing beyond turn 12.
 
 ### If a command does not work
 
@@ -411,7 +442,9 @@ for this version, along with clean installation and replay/live-follow checks.
 | `No run yet`, or the viewer shows an older task | Start a task in Terminal A and wait for its new `Trace:` line before starting the viewer again. |
 | `HTTP 429`, a provider outage, or a pause between replies | Keep the run open while a retry is announced. If it ends with `ERROR`, rerun later or replay the saved examples from step 9. |
 | The configured free model is unavailable | Replay the saved examples, or explicitly select another available free tool-calling model with `--model`. Paid models are rejected. |
-| The conversation ends with `FAIL` | Inspect the failed state checks and use `--tools` to see which actions occurred. A task failure is different from an API/protocol `ERROR`. |
+| `Customer role/protocol repair` or `Support role repair` | Read the displayed reason. The runner retries an invalid draft before delivery. Customer retries keep the observed phone results but remove old function-call syntax. Rejected drafts remain in the JSONL trace; three unsuccessful attempts end as `ERROR`. |
+| `empty model reply` or `output token limit reached; retry ...` | Keep the run open. The runner retries only that model response, increasing the output limit from 2,048 to 4,096 and then 8,192 when truncated. Completed actions are not replayed. Three unsuccessful response attempts end as `ERROR`. |
+| The conversation ends with `FAIL` | Inspect the failed state checks and the tool details shown in the run terminal. For a saved trace, replay with `showprogress.py <trace-path> --tools`. A task failure is different from an API/protocol `ERROR`. |
 
 ### About these tasks
 
@@ -422,7 +455,19 @@ scripted. The hard user combines Tau's Hard persona with a workshop rule: two
 requests offering multiple distinct phone tools trigger departure unless a
 single-tool request resets patience between them.
 
-All four tasks are solvable; only the easy baseline has a passing agent recording
-here. Agent improvements for the three failed cases are left for a later exercise.
+In new runs, **John Smith is the customer** and the other speaker is the support
+representative. Both models receive role reminders after tool results. The runner
+checks customer replies and support's `ask_customer` messages before delivery,
+including attempts by support to introduce itself as John. Customer wording
+repairs cannot execute more phone tools; support wording repairs must retain the
+same tool calls and requested phone checks. The persona and environment checks
+stay the same. Saved examples are historical
+recordings and may contain the old role mistakes. Start a new run using steps 4–8
+to see the correction; replaying an old trace does not change its dialogue.
+
+All four tasks are solvable. The original selected baselines contain one pass
+and three failures; fresh runs can differ, as the later hard-user pass shows.
+Runtime guards repair role/protocol errors; agent strategy improvements remain
+a later exercise.
 See [instructor notes](docs/telecom-details.md) for the source task IDs, exact user
 rule and implementation details.

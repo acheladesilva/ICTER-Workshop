@@ -6,6 +6,7 @@ import re
 import time
 import threading
 from datetime import datetime, timezone
+from itertools import count
 from pathlib import Path
 from typing import Literal
 
@@ -16,6 +17,9 @@ from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel
 
 from .models import make_model, preflight
+from .customer_role import CustomerRoleGuard, MAX_ATTEMPTS, ROLE_ANCHOR
+from .support_role import SupportRoleGuard, ROLE_ANCHOR as SUPPORT_ROLE_ANCHOR, reply_problem as support_reply_problem
+from .response_recovery import ResponseRecovery, MAX_ATTEMPTS as RESPONSE_ATTEMPTS, MAX_RECOVERY_TOKENS, RETRY_INSTRUCTION
 from .tasks import ROOT, TASKS, evaluate, load_task, new_environment
 from .trace import ModelTrace, Trace
 
@@ -54,6 +58,11 @@ def customer_request_tool(pending: dict):
         consent, explanations, or a goodbye. The customer may ask for clarification,
         decline, or leave. Account tools are separate. Always use this tool to speak.
         """
+        # Final boundary check as well as the model middleware: never deliver a
+        # support message that claims the customer's identity.
+        problem = support_reply_problem(message)
+        if problem:
+            raise RuntimeError(problem)
         # Some free providers ignore parallel_tool_calls=False. Preserve every
         # request in that support turn instead of silently overwriting the first.
         with lock:
@@ -63,7 +72,8 @@ def customer_request_tool(pending: dict):
 
     return ask_customer
 
-USER_RULES = """You are the CUSTOMER in a simulated telecom support conversation.
+USER_RULES = """You are John Smith, the CUSTOMER in a simulated telecom support conversation.
+John is your name. The other speaker is an unnamed support representative.
 Reply as the customer, never as the support agent. The other speaker's messages
 are support instructions. Your tools operate YOUR phone; use them only when the
 support agent asks for the corresponding check or action. You may use several
@@ -138,8 +148,10 @@ def code_hash() -> str:
     return digest.hexdigest()
 
 
-def run(name: str, model: str, output: Path, max_turns: int = 12,
+def run(name: str, model: str, output: Path, max_turns: int | None = None,
         show_tools: bool = False, prompt_file: Path | None = None) -> dict:
+    if max_turns is not None and max_turns < 1:
+        raise ValueError("max_turns must be positive or None for unlimited")
     catalog = preflight(model)
     task = load_task(name)
     env = new_environment(task)
@@ -150,6 +162,8 @@ def run(name: str, model: str, output: Path, max_turns: int = 12,
         "No phone action happens automatically."
     )
     agent_prompt += (
+        "\nYou are the support representative. Your customer is John Smith. "
+        "Do not speak as John or describe his phone as your own.\n"
         "\nThe phone_tools list MUST include EVERY check and change you ask for. "
         "A verbal instruction without its tool name cannot be carried out. "
         "Do not omit a setting-change tool when asking the customer to change a setting.\n"
@@ -165,13 +179,22 @@ def run(name: str, model: str, output: Path, max_turns: int = 12,
     path = output / f"{stamp}-{name}.jsonl"
     trace = Trace(path, show_tools=show_tools)
     trace.write("start", task=name, model=model, max_turns=max_turns,
+                customer_role_guard_sha256=hashlib.sha256(ROLE_ANCHOR.encode()).hexdigest(),
+                support_role_guard_sha256=hashlib.sha256(SUPPORT_ROLE_ANCHOR.encode()).hexdigest(),
                 code_sha256=code_hash(), catalog=catalog,
                 agent_prompt_sha256=hashlib.sha256(agent_prompt.encode()).hexdigest(),
                 user_prompt_sha256=hashlib.sha256(user_prompt.encode()).hexdigest())
+    trace.write("notice", behavior="turn_budget", max_turns=max_turns,
+                text=("Conversation turns: unlimited. Ctrl+C stops and saves the run."
+                      if max_turns is None else f"Conversation turn limit: {max_turns}."))
     # This instructor artifact is never passed to either model as a whole.
     path.with_suffix(".config.json").write_text(json.dumps({
         "task": task.model_dump(mode="json"), "agent_prompt": agent_prompt,
         "user_prompt": user_prompt, "model": model, "max_turns": max_turns,
+        "customer_role_guard": {"prompt": ROLE_ANCHOR, "max_attempts": MAX_ATTEMPTS},
+        "support_role_guard": {"prompt": SUPPORT_ROLE_ANCHOR, "max_attempts": MAX_ATTEMPTS},
+        "response_recovery": {"max_attempts": RESPONSE_ATTEMPTS, "max_recovery_tokens": MAX_RECOVERY_TOKENS,
+                              "retry_instruction": RETRY_INSTRUCTION},
     }, indent=2) + "\n")
     (output / "latest.txt").write_text(path.name + "\n")
     print(f"Trace: {path}", flush=True)
@@ -186,23 +209,26 @@ def run(name: str, model: str, output: Path, max_turns: int = 12,
         if actor == "agent":
             agents[actor] = create_agent(actor_model,
                 tools=actor_tools(env, actor, trace) + [customer_request_tool(pending)],
-                system_prompt=prompt)
+                system_prompt=prompt, middleware=[SupportRoleGuard(trace), ResponseRecovery(trace, actor)])
         else:
             user_model = actor_model
     histories = {
-        "agent": [],
-        "user": [HumanMessage(content="SUPPORT AGENT: Hello! How can I help you today?"),
-                 AIMessage(content=OPENING)],
+        "agent": [AIMessage(content="Hello! How can I help you today?", name="support_representative")],
+        "user": [HumanMessage(content="SUPPORT AGENT: Hello! How can I help you today?", name="support_representative"),
+                 AIMessage(content=OPENING, name="john_smith")],
     }
     callbacks = {actor: ModelTrace(trace, actor) for actor in ("agent", "user")}
     frustration = 0
-    termination, error = "turn_limit", None
+    termination, error = None, None
     started = time.monotonic()
     incoming = OPENING
     trace.write("message", actor="agent", text="Hello! How can I help you today?", turn=0)
     trace.write("message", actor="user", text=incoming, turn=0, scripted_opening=True)
     try:
-        for turn in range(1, max_turns + 1):
+        for turn in count(1):
+            if max_turns is not None and turn > max_turns:
+                termination = "turn_limit"
+                break
             for actor in ("agent", "user"):
                 if actor == "agent":
                     pending.update(phone_tools=[], message=None)
@@ -222,8 +248,13 @@ def run(name: str, model: str, output: Path, max_turns: int = 12,
                     elif allowed:
                         frustration = 0
                     agents["user"] = create_agent(user_model,
-                        tools=[t for t in user_tools if t.name in allowed], system_prompt=user_prompt)
-                content = incoming if actor == "agent" else (
+                        tools=[t for t in user_tools if t.name in allowed], system_prompt=user_prompt,
+                        middleware=[CustomerRoleGuard(trace), ResponseRecovery(trace, "user")])
+                content = (
+                    "The CUSTOMER John Smith says:\n<customer_message>\n" + incoming
+                    + "\n</customer_message>\nContinue as the SUPPORT REPRESENTATIVE. "
+                    "John is the customer; do not adopt his identity."
+                ) if actor == "agent" else (
                     "The SUPPORT AGENT says:\n<support_message>\n" + incoming
                     + "\n</support_message>\nContinue as CUSTOMER John Smith. "
                     "Use phone tools only for checks/actions requested in this message. "
@@ -232,7 +263,8 @@ def run(name: str, model: str, output: Path, max_turns: int = 12,
                 if actor == "user" and TASKS[name][0] and len(pending["phone_tools"]) > 1:
                     content += "\nThere are multiple independent steps. Take no action; ask for one clear step."
                 result = agents[actor].invoke(
-                    {"messages": histories[actor] + [HumanMessage(content=content)]},
+                    {"messages": histories[actor] + [HumanMessage(content=content,
+                        name="john_smith" if actor == "agent" else "support_representative")]},
                     {"callbacks": [callbacks[actor]], "recursion_limit": 30},
                 )
                 histories[actor] = result["messages"]
@@ -250,7 +282,7 @@ def run(name: str, model: str, output: Path, max_turns: int = 12,
                 if actor == "user" and any(marker in incoming for marker in ("###STOP###", "###TRANSFER###")):
                     termination = "user_stop" if "###STOP###" in incoming else "transfer"
                     break
-            if termination != "turn_limit":
+            if termination is not None:
                 break
         checks = evaluate(env, task)
         outcome = "pass" if all(c["passed"] for c in checks) else "fail"
