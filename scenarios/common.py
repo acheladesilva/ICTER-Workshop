@@ -2,7 +2,9 @@
 
 import os
 
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.graph.state import CompiledStateGraph
 from loguru import logger
 
 from .observability import trace
@@ -26,7 +28,7 @@ def make_model(name: str) -> ChatOpenAI:
     )
 
 
-def ask(agent, question: str, config: dict | None = None) -> str:
+def ask(agent: CompiledStateGraph, question: str, config: RunnableConfig | None = None) -> str:
     """Run one turn. The trace handler prints and logs every step."""
     config = {**(config or {}), "callbacks": [trace]}
     result = agent.invoke({"messages": [{"role": "user", "content": question}]}, config)
